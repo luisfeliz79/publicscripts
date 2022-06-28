@@ -79,6 +79,68 @@ return (Invoke-ResourceExplorerQuery -AccessToken $AccessToken -KQL $KQL)
 
 }
 
+function GetAccessTokenViaDeviceCode {
+    [CmdletBinding()]
+    param
+    (
+        # The tenant ID of the tenant to collect the OAUTH token from
+        [Parameter(Mandatory = $true)]
+        [System.String]
+        $tenantid,
+
+        # The resource ID of resource you want an OAUTH token for
+        [Parameter(Mandatory = $true)]
+        [System.String]
+        $resourceid
+    )
+    # Known Client ID for PowerShell
+    $clientid = '1950a258-227b-4e31-a9cf-717495945fc2'
+
+    # Request device login @ Microsoft
+    $DeviceCodeRequestParams = @{
+        Method = 'POST'
+        Uri    = "https://login.microsoftonline.com/$TenantID/oauth2/devicecode"
+        Body   = @{
+            client_id = $ClientId
+            resource  = $ResourceID
+        }
+    }
+    $DeviceCodeRequest = Invoke-RestMethod @DeviceCodeRequestParams
+
+    # Show the user a message where he/she should login
+    Write-Host $DeviceCodeRequest.message -ForegroundColor Yellow
+
+    # Poll the token site to see or the user succesfully autorized
+    do {
+        try {
+            $TokenRequestParams = @{
+                Method = 'POST'
+                Uri    = "https://login.microsoftonline.com/$TenantId/oauth2/token"
+                Body   = @{
+                    grant_type = "urn:ietf:params:oauth:grant-type:device_code"
+                    code       = $DeviceCodeRequest.device_code
+                    client_id  = $ClientId
+                }
+            }
+            $TokenRequest = Invoke-RestMethod @TokenRequestParams
+            # Add a new line to the ouput, so it lookks better
+            write-host ""
+            # Return the token information
+            return $TokenRequest
+        }
+        catch {
+            if ((convertfrom-json $_.ErrorDetails.Message).error -eq "authorization_pending") {
+                write-host "." -NoNewline
+                Start-Sleep -Seconds 5
+            }
+            else {
+                throw "Unkown error while requesting token"
+            }
+        }
+    } while ($true)
+
+}
+
 
 Function GetAccessToken() {
 
@@ -124,6 +186,10 @@ Function GetAccessToken() {
                     Write-Warning "Please run az login first";exit
             }               
      
+        } else {
+
+            
+
         }
    }
 
@@ -149,8 +215,10 @@ Function GetAccessToken() {
 #region MAIN
 
 # Obtain an Access token
-$AccessToken = GetAccessToken
-   
+#$AccessToken = GetAccessToken
+$AccessToken=(GetAccessTokenViaDeviceCode -tenantid "common" -resourceid "https://management.core.windows.net/").access_token
+
+
 
     
     $Subs= (Invoke-ARMAPIQuery  "https://management.azure.com/subscriptions?api-version=2020-01-01").value
@@ -189,6 +257,9 @@ $AccessToken = GetAccessToken
         }
 
     }
+
+    $result | Export-Csv -NoTypeInformation -Path subowners.csv -Force
+    $result | ft
     
     
     
